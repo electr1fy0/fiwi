@@ -49,6 +49,20 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	return string(data), nil
 }
 
+func FilterHTML(s string) string {
+	lowered := strings.ToLower(s)
+	if trimmed, ok := strings.CutPrefix(lowered, "<!doctype html>"); ok {
+		switch {
+		case strings.Contains(trimmed, "access granted"), strings.Contains(trimmed, "already exists"):
+			return "Access Granted"
+		case strings.Contains(trimmed, "account does not exist"):
+			return "Invalid credentials"
+		}
+	}
+
+	return s
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -56,7 +70,7 @@ func main() {
 	resp, err := LoginWithCtx(ctx, http.DefaultClient, URL, userID, password)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			fmt.Println("timeout exceeded")
+			fmt.Println("Timeout exceeded")
 		} else {
 			log.Fatal(err)
 		}

@@ -79,3 +79,34 @@ func TestLogin_Timeout(t *testing.T) {
 		t.Errorf("expected timeout, got %s", err)
 	}
 }
+
+func Test_FilterHTML(t *testing.T) {
+
+	t.Run("success html", func(t *testing.T) {
+		htmlSuccess := `<!doctype html> toAccess Grantedto`
+
+		got := FilterHTML(htmlSuccess)
+		if got != "Access Granted" {
+			t.Errorf("expected Access Granted, got %s", got)
+		}
+	})
+
+	t.Run("success html", func(t *testing.T) {
+		htmlFailure := `<!doctype html> account does not exist`
+
+		got := FilterHTML(htmlFailure)
+		if got != "Invalid credentials" {
+			t.Errorf("expected Access Granted, got %s", got)
+		}
+	})
+
+	t.Run("success html", func(t *testing.T) {
+		notHTML := `<doctype> something not html idk`
+
+		got := FilterHTML(notHTML)
+		if got != notHTML {
+			t.Errorf("expected %s, got %s", notHTML, got)
+		}
+	})
+
+}
