@@ -112,6 +112,33 @@ func Test_FilterHTML(t *testing.T) {
 	})
 
 }
+
+func TestResolveCredentials(t *testing.T) {
+	t.Run("env takes priority", func(t *testing.T) {
+		u, p := ResolveCredentials("envUser", "envPass", []byte(`{"userID":"fileUser","password":"filePass"}`))
+
+		if u != "envUser" || p != "envPass" {
+			t.Fatalf("expected env creds, got %s %s", u, p)
+		}
+	})
+
+	t.Run("fallback to file", func(t *testing.T) {
+		u, p := ResolveCredentials("", "", []byte(`{"userID":"fileUser","password":"filePass"}`))
+
+		if u != "fileUser" || p != "filePass" {
+			t.Fatalf("expected file creds, got %s %s", u, p)
+		}
+	})
+
+	t.Run("empty case", func(t *testing.T) {
+		u, p := ResolveCredentials("", "", nil)
+
+		if u != "" || p != "" {
+			t.Fatalf("expected empty creds, got %s %s", u, p)
+		}
+	})
+}
+
 func TestRetry(t *testing.T) {
 	cfg := RetryConfig{
 		MaxAttempts: 5,
