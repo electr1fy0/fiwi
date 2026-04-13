@@ -24,6 +24,8 @@ type RetryConfig struct {
 	MaxDelay    time.Duration
 }
 
+var internalServerErr = errors.New("internal server error")
+
 func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, password string) (string, error) {
 	credentials := &url.Values{}
 	credentials.Add("userId", userID)
@@ -34,14 +36,14 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	if err != nil {
 		return "", err
 	}
-	// req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 
 	if resp.StatusCode >= 500 {
-		return "", fmt.Errorf("internal server error")
+		return "", internalServerErr
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)

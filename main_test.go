@@ -17,7 +17,7 @@ func TestLogin_Success(t *testing.T) {
 
 		r.ParseForm()
 		if r.Form.Get("userId") != "testuser" {
-			t.Errorf("wrong userid")
+			t.Errorf("wrong userid, got %s", r.Form.Get("userId"))
 		}
 		if r.Form.Get("password") != "testpass" {
 			t.Errorf("wrong pass")
@@ -58,8 +58,10 @@ func TestLogin_ServerError(t *testing.T) {
 	client := server.Client()
 
 	_, err := LoginWithCtx(context.Background(), client, server.URL, "u", "p")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Errorf("expected error, got none")
+	} else if !errors.Is(err, internalServerErr) {
+		t.Errorf("expected internal server error, got %s", err)
 	}
 }
 
@@ -109,4 +111,95 @@ func Test_FilterHTML(t *testing.T) {
 		}
 	})
 
+}
+func TestRetry(t *testing.T) {
+	cfg := RetryConfig{
+		MaxAttempts: 5,
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Second,
+	}
+
+	t.Run("success on first attempt", func(t *testing.T) {
+		calls := 0
+
+		fn := func() (string, error) {
+			calls++
+			return "ok", nil
+		}
+
+		res, err := Retry(context.Background(), cfg, fn)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res != "ok" {
+			t.Fatalf("expected ok, got %s", res)
+		}
+		if calls != 1 {
+			t.Fatalf("expected 1 call, got %d", calls)
+		}
+	})
+
+	t.Run("eventual success", func(t *testing.T) {
+		calls := 0
+
+		fn := func() (string, error) {
+			calls++
+			if calls < 3 {
+				return "", errors.New("fail")
+			}
+			return "ok", nil
+		}
+
+		res, err := Retry(context.Background(), cfg, fn)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls != 3 {
+			t.Fatalf("expected 3 calls, got %d", calls)
+		}
+		if res != "ok" {
+			t.Fatalf("unexpected result: %s", res)
+		}
+	})
+
+	t.Run("all attempts fail", func(t *testing.T) {
+		cfg.MaxAttempts = 3
+		calls := 0
+
+		fn := func() (string, error) {
+			calls++
+			return "", errors.New("fail")
+		}
+
+		_, err := Retry(context.Background(), cfg, fn)
+
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if calls != 3 {
+			t.Fatalf("expected 3 attempts, got %d", calls)
+		}
+	})
+
+	t.Run("context canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+
+		fn := func() (string, error) {
+			calls++
+			cancel()
+			return "", errors.New("fail")
+		}
+
+		_, err := Retry(ctx, cfg, fn)
+
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context canceled, got %v", err)
+		}
+		if calls != 1 {
+			t.Fatalf("expected 1 call, got %d", calls)
+		}
+	})
 }
