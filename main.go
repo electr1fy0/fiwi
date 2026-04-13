@@ -97,7 +97,7 @@ func main() {
 		100 * time.Millisecond,
 		10 * time.Second,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	res, err := Retry(ctx, cfg, func() (string, error) {

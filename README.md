@@ -1,36 +1,25 @@
-# 
 # fiwi
 
 ## **Overview**
 
-Simple Go client to log into a captive portal using a POST request with form data. Supports context-based timeout.
+Tiny Go client to log into a captive portal using a POST request with form data. Supports context-based timeout and retries.
 
 ## **Env Variables**
 
-```
+```bash
 WIFI_USERID
 WIFI_PASSWORD
 ```
 
 ## **Run**
 
-```
+```bash
 go run main.go
 ```
 
-## **Function**
 
+## **Test**
+
+```bash
+go test .
 ```
-LoginWithCtx(ctx, client, url, userID, password) (string, error)
-```
-
-* Sends POST request
-* Returns response body
-* Respects context timeout
-
-## **Tests**
-
-* Success case
-* Network error
-* Server error (500)
-* Timeout handling
