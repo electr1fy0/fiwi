@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,10 +34,14 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
+	}
+
+	if resp.StatusCode >= 500 {
+		return "", fmt.Errorf("internal server error")
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
@@ -63,17 +66,50 @@ func FilterHTML(s string) string {
 	return s
 }
 
+func Retry(ctx context.Context, cfg RetryConfig, fn func() (string, error)) (string, error) {
+	backoff := cfg.BaseDelay
+
+	var lastErr error
+	for range cfg.MaxAttempts {
+		res, err := fn()
+		if err == nil {
+			return res, nil
+		}
+
+		lastErr = err
+
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		time.Sleep(backoff)
+
+		backoff = min(cfg.MaxDelay, backoff*2)
+	}
+
+	return "", lastErr
+}
+
 func main() {
+	cfg := RetryConfig{
+		5,
+		100 * time.Millisecond,
+		10 * time.Second,
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	resp, err := LoginWithCtx(ctx, http.DefaultClient, URL, userID, password)
+	res, err := Retry(ctx, cfg, func() (string, error) {
+		return LoginWithCtx(ctx, http.DefaultClient, URL, userID, password)
+	})
+
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			fmt.Println("Timeout exceeded")
 		} else {
-			log.Fatal(err)
+			fmt.Println(err)
 		}
+		return
 	}
-	fmt.Print(resp)
+
+	fmt.Print(FilterHTML(res))
 }
