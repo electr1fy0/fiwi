@@ -57,6 +57,7 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	return string(data), nil
 }
 
+// TODO: use and test this later
 func ResolveCredentials(envUser, envPass string, fileData []byte) (string, string) {
 	if envUser != "" && envPass != "" {
 		return strings.TrimSpace(envUser), strings.TrimSpace(envPass)
@@ -73,13 +74,13 @@ func ResolveCredentials(envUser, envPass string, fileData []byte) (string, strin
 
 func FilterHTML(s string) string {
 	lowered := strings.ToLower(s)
-	if trimmed, ok := strings.CutPrefix(lowered, "<!doctype html>"); ok {
-		switch {
-		case strings.Contains(trimmed, "access granted"), strings.Contains(trimmed, "already exists"):
-			return "Access Granted"
-		case strings.Contains(trimmed, "account does not exist"):
-			return "Invalid credentials"
-		}
+	switch {
+	case strings.Contains(lowered, "access granted"), strings.Contains(lowered, "already exists"):
+		return "Access Granted"
+	case strings.Contains(lowered, "http://detectportal.firefox.com/canonical.html"):
+		return "Already logged in"
+	case strings.Contains(lowered, "account does not exist"):
+		return "Invalid credentials"
 	}
 
 	return s
@@ -89,7 +90,12 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func() (string, error)) (str
 	backoff := cfg.BaseDelay
 
 	var lastErr error
-	for range cfg.MaxAttempts {
+	for i := range cfg.MaxAttempts {
+		if i != 0 {
+			fmt.Print("re")
+		}
+		fmt.Print("connecting...\r")
+
 		res, err := fn()
 		if err == nil {
 			return res, nil
@@ -157,8 +163,8 @@ func main() {
 	setEnv()
 
 	cfg := RetryConfig{
-		5,
-		100 * time.Millisecond,
+		10,
+		1 * time.Second,
 		10 * time.Second,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

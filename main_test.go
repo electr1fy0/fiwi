@@ -111,6 +111,15 @@ func Test_FilterHTML(t *testing.T) {
 		}
 	})
 
+	t.Run("already logged in html", func(t *testing.T) {
+		alreadyHTML := `<html><head><meta http-equiv="refresh" content="0;url=http://detectportal.firefox.com/canonical.html"></head></html>%`
+
+		got := FilterHTML(alreadyHTML)
+		if got != "Already logged in" {
+			t.Errorf("expected %s, got %s", "Already logged in", got)
+		}
+	})
+
 }
 
 func TestResolveCredentials(t *testing.T) {
