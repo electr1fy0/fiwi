@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestLogin_Success(t *testing.T) {
@@ -27,7 +30,7 @@ func TestLogin_Success(t *testing.T) {
 
 	defer server.Close()
 	client := server.Client()
-	resp, err := Login(client, server.URL, "testuser", "testpass")
+	resp, err := LoginWithCtx(context.Background(), client, server.URL, "testuser", "testpass")
 	if err != nil {
 		t.Fatalf("unexpcted error: %v", err)
 	}
@@ -40,7 +43,7 @@ func TestLogin_Success(t *testing.T) {
 func TestLogin_NetworkError(t *testing.T) {
 	client := &http.Client{}
 
-	_, err := Login(client, "http://invalid-url", "u", "p")
+	_, err := LoginWithCtx(context.Background(), client, "http://invalid-url", "u", "p")
 	if err == nil {
 		t.Errorf("expected error, got nil")
 	}
@@ -54,8 +57,25 @@ func TestLogin_ServerError(t *testing.T) {
 
 	client := server.Client()
 
-	_, err := Login(client, server.URL, "u", "p")
+	_, err := LoginWithCtx(context.Background(), client, server.URL, "u", "p")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestLogin_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	client := server.Client()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	_, err := LoginWithCtx(ctx, client, server.URL, "u", "p")
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected timeout, got %s", err)
 	}
 }

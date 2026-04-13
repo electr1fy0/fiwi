@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,13 +25,13 @@ type RetryConfig struct {
 	MaxDelay    time.Duration
 }
 
-func Login(client *http.Client, portalURL, userID, password string) (string, error) {
+func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, password string) (string, error) {
 	credentials := &url.Values{}
 	credentials.Add("userId", userID)
 	credentials.Add("password", password)
 	credentials.Add("serviceName", "ProntoAuthentication")
 
-	req, err := http.NewRequest(http.MethodPost, portalURL, strings.NewReader(credentials.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, portalURL, strings.NewReader(credentials.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -48,9 +50,16 @@ func Login(client *http.Client, portalURL, userID, password string) (string, err
 }
 
 func main() {
-	resp, err := Login(http.DefaultClient, URL, userID, password)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	resp, err := LoginWithCtx(ctx, http.DefaultClient, URL, userID, password)
 	if err != nil {
-		log.Fatal(err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			fmt.Println("timeout exceeded")
+		} else {
+			log.Fatal(err)
+		}
 	}
 	fmt.Print(resp)
 }
