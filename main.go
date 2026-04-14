@@ -126,7 +126,10 @@ func setEnv() error {
 		UserID   string `json:"userID"`
 		Password string `json:"password"`
 	}
-	json.Unmarshal(data, &creds)
+	err = json.Unmarshal(data, &creds)
+	if err != nil {
+		return err
+	}
 	userID = strings.TrimSpace(creds.UserID)
 	password = strings.TrimSpace(creds.Password)
 
@@ -164,10 +167,10 @@ func main() {
 
 	cfg := RetryConfig{
 		10,
-		1 * time.Second,
+		1500 * time.Millisecond,
 		10 * time.Second,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	res, err := Retry(ctx, cfg, func() (string, error) {

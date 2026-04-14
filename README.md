@@ -1,25 +1,35 @@
 # fiwi
 
-## **Overview**
+Tiny Go client to log into a captive portal with retries and timeout.
 
-Tiny Go client to log into a captive portal using a POST request with form data. Supports context-based timeout and retries.
+## Credentials
 
-## **Env Variables**
-
+Set env vars:
 ```bash
 WIFI_USERID
 WIFI_PASSWORD
 ```
+Or create `~/.fiwi`:
 
-## **Run**
+```js
+{
+“userID”: “your_id”,
+“password”: “your_password”
+}
+```
+If neither exists, you’ll be prompted once and it will be saved automatically.
 
-```bash
+## Run
+
 go run main.go
-```
 
+## Output
 
-## **Test**
+- Access Granted
+- Already logged in
+- Invalid credentials
+- Raw HTML response (fallback)
 
-```bash
+## Test
+
 go test .
-```
