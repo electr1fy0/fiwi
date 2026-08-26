@@ -82,6 +82,24 @@ func TestLogin_Timeout(t *testing.T) {
 	}
 }
 
+func TestLogin_EmptyCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.Form.Get("userId") != "" || r.Form.Get("password") != "" {
+			t.Errorf("expected empty credentials")
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("login successful"))
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	_, err := LoginWithCtx(context.Background(), client, server.URL, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func Test_FilterHTML(t *testing.T) {
 
 	t.Run("success html", func(t *testing.T) {
@@ -93,16 +111,16 @@ func Test_FilterHTML(t *testing.T) {
 		}
 	})
 
-	t.Run("success html", func(t *testing.T) {
+	t.Run("invalid credentials html", func(t *testing.T) {
 		htmlFailure := `<!doctype html> account does not exist`
 
 		got := FilterHTML(htmlFailure)
 		if got != "Invalid credentials" {
-			t.Errorf("expected Access Granted, got %s", got)
+			t.Errorf("expected Invalid credentials, got %s", got)
 		}
 	})
 
-	t.Run("success html", func(t *testing.T) {
+	t.Run("unknown response", func(t *testing.T) {
 		notHTML := `<doctype> something not html idk`
 
 		got := FilterHTML(notHTML)
@@ -120,6 +138,26 @@ func Test_FilterHTML(t *testing.T) {
 		}
 	})
 
+	t.Run("case insensitive access granted", func(t *testing.T) {
+		got := FilterHTML("ACCESS GRANTED")
+		if got != "Access Granted" {
+			t.Errorf("expected Access Granted, got %s", got)
+		}
+	})
+
+	t.Run("already exists triggers access granted", func(t *testing.T) {
+		got := FilterHTML("Account Already Exists")
+		if got != "Access Granted" {
+			t.Errorf("expected Access Granted, got %s", got)
+		}
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		got := FilterHTML("")
+		if got != "" {
+			t.Errorf("expected empty, got %s", got)
+		}
+	})
 }
 
 func TestResolveCredentials(t *testing.T) {
@@ -149,13 +187,12 @@ func TestResolveCredentials(t *testing.T) {
 }
 
 func TestRetry(t *testing.T) {
-	cfg := RetryConfig{
-		MaxAttempts: 5,
-		BaseDelay:   time.Millisecond,
-		MaxDelay:    time.Second,
-	}
-
 	t.Run("success on first attempt", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 5,
+			BaseDelay:   time.Millisecond,
+			MaxDelay:    time.Second,
+		}
 		calls := 0
 
 		fn := func() (string, error) {
@@ -177,6 +214,11 @@ func TestRetry(t *testing.T) {
 	})
 
 	t.Run("eventual success", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 5,
+			BaseDelay:   time.Millisecond,
+			MaxDelay:    time.Second,
+		}
 		calls := 0
 
 		fn := func() (string, error) {
@@ -201,7 +243,11 @@ func TestRetry(t *testing.T) {
 	})
 
 	t.Run("all attempts fail", func(t *testing.T) {
-		cfg.MaxAttempts = 3
+		cfg := RetryConfig{
+			MaxAttempts: 3,
+			BaseDelay:   time.Millisecond,
+			MaxDelay:    time.Second,
+		}
 		calls := 0
 
 		fn := func() (string, error) {
@@ -220,6 +266,11 @@ func TestRetry(t *testing.T) {
 	})
 
 	t.Run("context canceled", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 5,
+			BaseDelay:   time.Millisecond,
+			MaxDelay:    time.Second,
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		calls := 0
 
@@ -236,6 +287,68 @@ func TestRetry(t *testing.T) {
 		}
 		if calls != 1 {
 			t.Fatalf("expected 1 call, got %d", calls)
+		}
+	})
+
+	t.Run("single attempt", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 1,
+			BaseDelay:   time.Millisecond,
+			MaxDelay:    time.Second,
+		}
+		fn := func() (string, error) {
+			return "ok", nil
+		}
+
+		res, err := Retry(context.Background(), cfg, fn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res != "ok" {
+			t.Fatalf("expected ok, got %s", res)
+		}
+	})
+
+	t.Run("backoff capped at max delay", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 4,
+			BaseDelay:   50 * time.Millisecond,
+			MaxDelay:    80 * time.Millisecond,
+		}
+		start := time.Now()
+		calls := 0
+
+		fn := func() (string, error) {
+			calls++
+			return "", errors.New("fail")
+		}
+
+		Retry(context.Background(), cfg, fn)
+
+		elapsed := time.Since(start)
+		expected := 50*time.Millisecond + 80*time.Millisecond + 80*time.Millisecond
+		if elapsed >= expected+200*time.Millisecond {
+			t.Fatalf("backoff not capped at max delay, took %v (expected ~%v)", elapsed, expected)
+		}
+	})
+
+	t.Run("context timeout during backoff", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+
+		cfg := RetryConfig{
+			MaxAttempts: 10,
+			BaseDelay:   100 * time.Millisecond,
+			MaxDelay:    time.Second,
+		}
+
+		fn := func() (string, error) {
+			return "", errors.New("fail")
+		}
+
+		_, err := Retry(ctx, cfg, fn)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
 		}
 	})
 }
