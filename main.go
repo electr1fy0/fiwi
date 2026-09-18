@@ -97,6 +97,7 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	client := &http.Client{Timeout: 8 * time.Second}
 
 	attempts := 0
 	res, err := Retry(ctx, cfg, func() (string, error) {
@@ -105,7 +106,7 @@ func main() {
 		}
 		fmt.Print("connecting...\r")
 		attempts++
-		return LoginWithCtx(ctx, http.DefaultClient, URL, userID, password)
+		return LoginWithCtx(ctx, client, URL, userID, password)
 	})
 
 	if err != nil {
@@ -114,7 +115,7 @@ func main() {
 		} else {
 			PrintError(err)
 		}
-		return
+		os.Exit(1)
 	}
 
 	PrintLoginResult(FilterHTML(res))

@@ -80,7 +80,13 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func() (string, error)) (str
 			return "", ctx.Err()
 		}
 
-		time.Sleep(backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
 		backoff = min(cfg.MaxDelay, backoff*2)
 	}
 
