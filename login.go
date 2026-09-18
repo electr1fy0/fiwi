@@ -12,7 +12,9 @@ import (
 
 var (
 	URL               = "http://phc.prontonetworks.com/cgi-bin/authlogin?URI=http://detectportal.firefox.com/canonical.html"
+	ConnectivityURL   = "http://connectivitycheck.gstatic.com/generate_204"
 	internalServerErr = errors.New("internal server error")
+	accessNotGranted  = errors.New("portal did not grant internet access")
 )
 
 type RetryConfig struct {
@@ -26,6 +28,7 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	credentials.Add("userId", userID)
 	credentials.Add("password", password)
 	credentials.Add("serviceName", "ProntoAuthentication")
+	credentials.Add("Submit22", "Login")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, portalURL, strings.NewReader(credentials.Encode()))
 	if err != nil {
@@ -49,6 +52,38 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	}
 
 	return string(data), nil
+}
+
+func HasInternetAccess(ctx context.Context, client *http.Client, probeURL string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		return false
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusNoContent
+}
+
+func LoginAndVerify(ctx context.Context, client *http.Client, portalURL, probeURL, userID, password string) (string, error) {
+	result, err := LoginWithCtx(ctx, client, portalURL, userID, password)
+	if err != nil {
+		return "", err
+	}
+
+	filtered := FilterHTML(result)
+	if filtered == "Invalid credentials" {
+		return filtered, nil
+	}
+	if HasInternetAccess(ctx, client, probeURL) {
+		return "Access Granted", nil
+	}
+
+	return "", accessNotGranted
 }
 
 func FilterHTML(s string) string {

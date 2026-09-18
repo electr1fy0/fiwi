@@ -22,6 +22,9 @@ func TestLogin_Success(t *testing.T) {
 		if r.Form.Get("password") != "testpass" {
 			t.Errorf("wrong pass")
 		}
+		if r.Form.Get("Submit22") != "Login" {
+			t.Errorf("missing login submit field")
+		}
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("login successful"))
@@ -37,6 +40,60 @@ func TestLogin_Success(t *testing.T) {
 
 	if resp != "login successful" {
 		t.Errorf("unexpcted response: %s", resp)
+	}
+}
+
+func TestHasInternetAccess(t *testing.T) {
+	t.Run("online", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		if !HasInternetAccess(context.Background(), server.Client(), server.URL) {
+			t.Fatal("expected internet access")
+		}
+	})
+
+	t.Run("captive portal", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("login form"))
+		}))
+		defer server.Close()
+
+		if HasInternetAccess(context.Background(), server.Client(), server.URL) {
+			t.Fatal("expected captive portal response")
+		}
+	})
+}
+
+func TestLoginAndVerify(t *testing.T) {
+	online := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/login":
+			r.ParseForm()
+			if r.Form.Get("Submit22") == "Login" {
+				online = true
+			}
+			w.Write([]byte("Access Granted"))
+		case "/probe":
+			if online {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	result, err := LoginAndVerify(context.Background(), server.Client(), server.URL+"/login", server.URL+"/probe", "user", "pass")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "Access Granted" {
+		t.Fatalf("expected verified access, got %q", result)
 	}
 }
 

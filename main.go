@@ -98,6 +98,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 8 * time.Second}
+	if HasInternetAccess(ctx, client, ConnectivityURL) {
+		PrintLoginResult("Already logged in")
+		return
+	}
 
 	attempts := 0
 	res, err := Retry(ctx, cfg, func() (string, error) {
@@ -106,7 +110,7 @@ func main() {
 		}
 		fmt.Print("connecting...\r")
 		attempts++
-		return LoginWithCtx(ctx, client, URL, userID, password)
+		return LoginAndVerify(ctx, client, URL, ConnectivityURL, userID, password)
 	})
 
 	if err != nil {
