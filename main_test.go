@@ -5,41 +5,121 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 )
 
+type portalTestTransport struct {
+	handler http.HandlerFunc
+}
+
+func (transport portalTestTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	recorder := httptest.NewRecorder()
+	transport.handler.ServeHTTP(recorder, req)
+	response := recorder.Result()
+	response.Request = req
+	return response, nil
+}
+
+func portalTestClient(handler http.HandlerFunc) *http.Client {
+	return &http.Client{Transport: portalTestTransport{handler: handler}}
+}
+
 func TestLogin_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := portalTestClient(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected post, got %s", r.Method)
 		}
 
-		r.ParseForm()
+		if r.URL.Path != "/cgi-bin/authlogin" || r.URL.Query().Get("URI") != "http://example.com" {
+			t.Errorf("unexpected login URL: %s", r.URL)
+		}
+		for name, want := range map[string]string{
+			"Content-Type":              "application/x-www-form-urlencoded",
+			"Accept":                    "*/*",
+			"Accept-Language":           "en-GB,en;q=0.9",
+			"Origin":                    "http://" + r.Host,
+			"Referer":                   "http://" + r.Host + "/cgi-bin/authlogin?URI=http://115.248.50.60/",
+			"Upgrade-Insecure-Requests": "1",
+			"User-Agent":                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+		} {
+			if got := r.Header.Get(name); got != want {
+				t.Errorf("header %s = %q, want %q", name, got, want)
+			}
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+			return
+		}
 		if r.Form.Get("userId") != "testuser" {
 			t.Errorf("wrong userid, got %s", r.Form.Get("userId"))
 		}
 		if r.Form.Get("password") != "testpass" {
 			t.Errorf("wrong pass")
 		}
-		if r.Form.Get("Submit22") != "Login" {
-			t.Errorf("missing login submit field")
+		if len(r.PostForm) != 3 || r.PostForm.Get("serviceName") != "ProntoAuthentication" {
+			t.Errorf("expected only the three working curl form fields")
 		}
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("login successful"))
 
-	}))
+	})
 
-	defer server.Close()
-	client := server.Client()
-	resp, err := LoginWithCtx(context.Background(), client, server.URL, "testuser", "testpass")
+	portal, err := url.Parse(URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := LoginWithCtx(context.Background(), client, "http://portal.test"+portal.RequestURI(), "testuser", "testpass")
 	if err != nil {
 		t.Fatalf("unexpcted error: %v", err)
 	}
 
 	if resp != "login successful" {
 		t.Errorf("unexpcted response: %s", resp)
+	}
+}
+
+func TestLogin_DoesNotFollowRedirects(t *testing.T) {
+	redirected := false
+	client := portalTestClient(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/destination" {
+			redirected = true
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Location", "/destination")
+		w.WriteHeader(http.StatusFound)
+		w.Write([]byte("portal response"))
+	})
+
+	result, err := LoginWithCtx(context.Background(), client, "http://portal.test/login", "user", "pass")
+	if err != nil || result != "portal response" {
+		t.Fatalf("expected original portal response, got %q, %v", result, err)
+	}
+	if redirected {
+		t.Fatal("login followed the redirect")
+	}
+	if client.CheckRedirect != nil {
+		t.Fatal("login changed the caller's redirect policy")
+	}
+}
+
+func TestLogin_EncodesCredentials(t *testing.T) {
+	const user = "user+name@example.com"
+	const pass = "p&=+ %word"
+	client := portalTestClient(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+			return
+		}
+		if r.PostForm.Get("userId") != user || r.PostForm.Get("password") != pass {
+			t.Error("form encoding did not preserve credentials")
+		}
+	})
+	if _, err := LoginWithCtx(context.Background(), client, "http://portal.test/login", user, pass); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -74,7 +154,7 @@ func TestLoginAndVerify(t *testing.T) {
 		switch r.URL.Path {
 		case "/login":
 			r.ParseForm()
-			if r.Form.Get("Submit22") == "Login" {
+			if r.PostForm.Get("serviceName") == "ProntoAuthentication" && len(r.PostForm) == 3 {
 				online = true
 			}
 			w.Write([]byte("Access Granted"))
@@ -94,6 +174,17 @@ func TestLoginAndVerify(t *testing.T) {
 	}
 	if result != "Access Granted" {
 		t.Fatalf("expected verified access, got %q", result)
+	}
+}
+
+func TestLoginAndVerify_RequiresInternetAccess(t *testing.T) {
+	client := portalTestClient(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Access Granted"))
+	})
+
+	_, err := LoginAndVerify(context.Background(), client, "http://portal.test/login", "http://portal.test/probe", "user", "pass")
+	if !errors.Is(err, accessNotGranted) {
+		t.Fatalf("expected failed connectivity verification, got %v", err)
 	}
 }
 

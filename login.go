@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,7 +12,7 @@ import (
 )
 
 var (
-	URL               = "http://phc.prontonetworks.com/cgi-bin/authlogin?URI=http://detectportal.firefox.com/canonical.html"
+	URL               = "http://phc.prontonetworks.com/cgi-bin/authlogin?URI=http://example.com"
 	ConnectivityURL   = "http://connectivitycheck.gstatic.com/generate_204"
 	internalServerErr = errors.New("internal server error")
 	accessNotGranted  = errors.New("portal did not grant internet access")
@@ -28,15 +29,28 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 	credentials.Add("userId", userID)
 	credentials.Add("password", password)
 	credentials.Add("serviceName", "ProntoAuthentication")
-	credentials.Add("Submit22", "Login")
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, portalURL, strings.NewReader(credentials.Encode()))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	req.Header.Set("Origin", req.URL.Scheme+"://"+req.URL.Host)
+	referer := *req.URL
+	referer.RawQuery = "URI=http://115.248.50.60/"
+	req.Header.Set("Referer", referer.String())
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
 
-	resp, err := client.Do(req)
+	// Match curl without -L: only send the authentication request. A failure
+	// fetching the redirect destination must not turn a completed POST into an error.
+	loginClient := *client
+	loginClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := loginClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -44,6 +58,9 @@ func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, p
 
 	if resp.StatusCode >= 500 {
 		return "", internalServerErr
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("portal returned HTTP %d", resp.StatusCode)
 	}
 
 	data, err := io.ReadAll(resp.Body)
