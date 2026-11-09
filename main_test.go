@@ -37,12 +37,14 @@ func TestLogin_Success(t *testing.T) {
 		}
 		for name, want := range map[string]string{
 			"Content-Type":              "application/x-www-form-urlencoded",
-			"Accept":                    "*/*",
+			"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
 			"Accept-Language":           "en-GB,en;q=0.9",
+			"Cache-Control":             "max-age=0",
+			"Connection":                "keep-alive",
 			"Origin":                    "http://" + r.Host,
-			"Referer":                   "http://" + r.Host + "/cgi-bin/authlogin?URI=http://115.248.50.60/",
+			"Referer":                   "http://" + r.Host + "/cgi-bin/authlogin?URI=http://" + r.Host + "/",
 			"Upgrade-Insecure-Requests": "1",
-			"User-Agent":                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+			"User-Agent":                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
 		} {
 			if got := r.Header.Get(name); got != want {
 				t.Errorf("header %s = %q, want %q", name, got, want)

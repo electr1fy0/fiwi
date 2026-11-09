@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 )
 
 var (
-	URL               = "http://phc.prontonetworks.com/cgi-bin/authlogin?URI=http://example.com"
+	URL               = "http://172.17.96.1/cgi-bin/authlogin?URI=http://example.com"
 	ConnectivityURL   = "http://connectivitycheck.gstatic.com/generate_204"
 	internalServerErr = errors.New("internal server error")
 	accessNotGranted  = errors.New("portal did not grant internet access")
@@ -25,30 +26,46 @@ type RetryConfig struct {
 }
 
 func LoginWithCtx(ctx context.Context, client *http.Client, portalURL, userID, password string) (string, error) {
-	credentials := &url.Values{}
-	credentials.Add("userId", userID)
-	credentials.Add("password", password)
-	credentials.Add("serviceName", "ProntoAuthentication")
+	body := fmt.Sprintf("userId=%s&password=%s&serviceName=ProntoAuthentication",
+		url.QueryEscape(userID),
+		url.QueryEscape(password),
+	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, portalURL, strings.NewReader(credentials.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, portalURL, strings.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
 	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	req.Header.Set("Cache-Control", "max-age=0")
+	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Origin", req.URL.Scheme+"://"+req.URL.Host)
 	referer := *req.URL
-	referer.RawQuery = "URI=http://115.248.50.60/"
+	referer.RawQuery = "URI=" + req.URL.Scheme + "://" + req.URL.Host + "/"
 	req.Header.Set("Referer", referer.String())
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36")
 
 	// Match curl without -L: only send the authentication request. A failure
 	// fetching the redirect destination must not turn a completed POST into an error.
 	loginClient := *client
 	loginClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
+	}
+	var transport *http.Transport
+	if t, ok := client.Transport.(*http.Transport); ok && t != nil {
+		transport = t.Clone()
+	} else if client.Transport == nil {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	if transport != nil {
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		} else {
+			transport.TLSClientConfig.InsecureSkipVerify = true
+		}
+		loginClient.Transport = transport
 	}
 	resp, err := loginClient.Do(req)
 	if err != nil {
